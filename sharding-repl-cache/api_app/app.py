@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from pydantic.functional_validators import BeforeValidator
 from pymongo import errors
 from redis import asyncio as aioredis
+from redis.asyncio.cluster import ClusterNode
 from typing_extensions import Annotated
 
 # Configure JSON logging
@@ -27,9 +28,18 @@ app.add_middleware(
     logger=logger,
 )
 
+redis_nodes = [
+    ClusterNode(host="redis_1", port=6379),
+    ClusterNode(host="redis_2", port=6379),
+    ClusterNode(host="redis_3", port=6379),
+    ClusterNode(host="redis_4", port=6379),
+    ClusterNode(host="redis_5", port=6379),
+    ClusterNode(host="redis_6", port=6379),
+]
+
 DATABASE_URL = os.environ["MONGODB_URL"]
 DATABASE_NAME = os.environ["MONGODB_DATABASE_NAME"]
-REDIS_URL = os.getenv("REDIS_URL", None)
+USE_REDIS = os.getenv("USE_REDIS", None)
 
 
 def nocache(*args, **kwargs):
@@ -39,7 +49,7 @@ def nocache(*args, **kwargs):
     return decorator
 
 
-if REDIS_URL:
+if USE_REDIS:
     cache = cache
 else:
     cache = nocache
@@ -55,8 +65,9 @@ PyObjectId = Annotated[str, BeforeValidator(str)]
 
 @app.on_event("startup")
 async def startup():
-    if REDIS_URL:
-        redis = aioredis.from_url(REDIS_URL, encoding="utf8", decode_responses=True)
+    if USE_REDIS:
+        # redis = aioredis.from_url(REDIS_URL, encoding="utf8", decode_responses=True)
+        redis = aioredis.RedisCluster(startup_nodes=redis_nodes, decode_responses=True)
         FastAPICache.init(RedisBackend(redis), prefix="api:cache")
 
 
@@ -106,7 +117,7 @@ async def root():
             shards[shard["_id"]] = shard["host"]
 
     cache_enabled = False
-    if REDIS_URL:
+    if USE_REDIS:
         cache_enabled = FastAPICache.get_enable()
 
     return {
